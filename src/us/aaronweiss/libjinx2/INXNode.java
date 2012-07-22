@@ -20,7 +20,7 @@ package us.aaronweiss.libjinx2;
 /**
  * An interface describing the basis of all iterable NX nodes.
  * @author Aaron Weiss
- * @version 1.0
+ * @version 2.0
  * @since 1.0
  */
 public interface INXNode extends Iterable<INXNode> {
@@ -59,13 +59,31 @@ public interface INXNode extends Iterable<INXNode> {
 	 * Adds a child to this node.
 	 * @param child the child to add
 	 */
-	public void addChild(INXNode child);
-
+	public void addParsedChild(INXNode child);
+	
 	/**
 	 * Gets the number of direct children that this node possesses.
 	 * @return the number of direct children of this node
 	 */
 	public int getChildCount();
+	
+	/**
+	 * Gets the offset of the direct children that this node possesses.
+	 * @return the offset of the direct children of this node
+	 */
+	public long getChildOffset();
+	
+	/**
+	 * Sets the number of direct children that this node possesses.
+	 * @param childCount the number of direct children of this node
+	 */
+	public void setChildCount(int childCount);
+	
+	/**
+	 * Sets the offset of the direct children that this node possesses.
+	 * @param childOffset the offset of the direct children of this node
+	 */
+	public void setChildOffset(long childOffset);
 	
 	/**
 	 * Gets the child node of this node corresponding to the specified <code>name</code>.

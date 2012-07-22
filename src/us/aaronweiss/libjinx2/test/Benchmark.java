@@ -20,6 +20,7 @@ package us.aaronweiss.libjinx2.test;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Scanner;
+import us.aaronweiss.libjinx2.INXNode;
 import us.aaronweiss.libjinx2.NXException;
 import us.aaronweiss.libjinx2.NXFile;
 
@@ -35,25 +36,61 @@ public class Benchmark {
 	 */
 	public static void main(String[] args) {
 		System.out.print("Press return to begin.");
+		NXFile nx = null;
 		Scanner in = new Scanner(System.in);
 		in.nextLine();
-		System.out.println("libjinx2: bench: start");
-		long startNano = System.nanoTime();
-		long start = System.currentTimeMillis();
+		{
+			System.out.println("libjinx2: load bench: start");
+			long startNano = System.nanoTime();
+			long start = System.currentTimeMillis();
+			try {
+				nx = new NXFile("Data.nx");
+				nx.parse();
+			} catch (NXException e) {
+				e.printStackTrace();
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			long end = System.currentTimeMillis();
+			long endNano = System.nanoTime();
+			System.out.println("libjinx2: load bench: end");
+			System.out.println("libjinx2: load bench: " + (end - start) + " ms " + (endNano - startNano) / 1000 + " µs");
+		}
+		{
+			System.out.println("libjinx2: access bench: start");
+			long startNano = System.nanoTime();
+			long start = System.currentTimeMillis();
+			for (int i = 0; i < 1000000; i++) {
+				nx.resolvePath("Effect/BasicEff.img/LevelUp/5/origin");
+			}
+			long end = System.currentTimeMillis();
+			long endNano = System.nanoTime();
+			System.out.println("libjinx2: access bench: end");
+			System.out.println("libjinx2: access bench: " + (end - start) + " ms " + (endNano - startNano) / 1000 + " µs");
+		}
+		{
+			System.out.println("libjinx2: recursion bench: start");
+			long startNano = System.nanoTime();
+			long start = System.currentTimeMillis();
+			Benchmark.recurse(nx.getBaseNode());
+			long end = System.currentTimeMillis();
+			long endNano = System.nanoTime();
+			System.out.println("libjinx2: recursion bench: end");
+			System.out.println("libjinx2: recursion bench: " + (end - start) + " ms " + (endNano - startNano) / 1000 + " µs");
+		}
+		in.nextLine();
 		try {
-			NXFile nx = new NXFile("Data.nx");
-			nx.parse();
 			nx.close();
-		} catch (NXException e) {
-			e.printStackTrace();
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		long end = System.currentTimeMillis();
-		long endNano = System.nanoTime();
-		System.out.println("libjinx2: bench: end");
-		System.out.println("libjinx2: bench: " + (end - start) + " ms " + (endNano - startNano) + " ns");
+	}
+	
+	public static void recurse(INXNode target) {
+		for (INXNode n : target) {
+			recurse (n);
+		}
 	}
 }

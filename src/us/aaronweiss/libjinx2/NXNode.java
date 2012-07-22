@@ -23,11 +23,13 @@ import java.util.Iterator;
 /**
  * The basis of all nodes in libjinx2.
  * @author Aaron Weiss
- * @version 1.0
+ * @version 2.0
  * @since 1.0
  */
 public abstract class NXNode implements INXNode {
-	protected HashMap<String, INXNode> children = null;
+	protected HashMap<String, INXNode> parsedChildren = null;
+	protected int childCount;
+	protected long childOffset;
 	protected final String name;
 	protected Object value;
 	protected final NXFile file;
@@ -77,29 +79,71 @@ public abstract class NXNode implements INXNode {
 	}
 
 	@Override
-	public void addChild(INXNode child) {
-		if (children == null)
-			children = new HashMap<String, INXNode>();
-		children.put(child.getName(), child);
+	public void addParsedChild(INXNode child) {
+		if (parsedChildren == null)
+			parsedChildren = new HashMap<String, INXNode>();
+		parsedChildren.put(child.getName(), child);
 	}
 	
 	@Override
 	public int getChildCount() {
-		return (children != null) ? children.size() : 0;
+		return this.childCount;
+	}
+	
+	@Override
+	public long getChildOffset() {
+		return this.childOffset;
+	}
+	
+	@Override
+	public void setChildCount(int childCount) {
+		this.childCount = childCount;
+	}
+	
+	@Override
+	public void setChildOffset(long childOffset) {
+		this.childOffset = childOffset;
 	}
 
 	@Override
 	public INXNode getChild(String name) {
-		return (children != null) ? children.get(name) : null;
+		if (parsedChildren != null && parsedChildren.containsKey(name)) {
+			parsedChildren.get(name);
+		} else {
+			try {
+				INXNode[] children = file.parseNodeChildren(this);
+				for (INXNode child : children) {
+					this.addParsedChild(child);
+				}
+			} catch (NXException e) {
+				e.printStackTrace();
+			} catch (NullPointerException e) {
+				// do nothing (?)
+			}
+			return parsedChildren.get(name);
+		}
+		return null;
 	}
 
 	@Override
 	public boolean hasChild(INXNode node) {
-		return (children != null) ? children.containsValue(node) : null;
+		if (parsedChildren != null) {
+			return parsedChildren.containsValue(node);
+		} else {
+			try {
+				INXNode[] children = file.parseNodeChildren(this);
+				for (INXNode child : children) {
+					this.addParsedChild(child);
+				}
+			} catch (NXException e) {
+				e.printStackTrace();
+			}
+			return parsedChildren.containsValue(node);
+		}
 	}
 	
 	@Override
 	public Iterator<INXNode> iterator() {
-		return children.values().iterator();
+		return (parsedChildren == null) ? null : parsedChildren.values().iterator();
 	}
 }

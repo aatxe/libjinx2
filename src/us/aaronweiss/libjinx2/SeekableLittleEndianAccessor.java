@@ -59,6 +59,14 @@ public class SeekableLittleEndianAccessor {
 	}
 	
 	/**
+	 * Gets the current position of this accessor.
+	 * @return the current position of this accessor
+	 */
+	public int position() {
+		return this.byteBuffer.position();
+	}
+	
+	/**
 	 * Gets the next byte from the buffer.
 	 * @return the next <code>byte</code> in the buffer
 	 */

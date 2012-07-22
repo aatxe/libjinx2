@@ -26,7 +26,7 @@ import java.nio.channels.FileChannel;
 /**
  * An NX file for NX loading.
  * @author Aaron Weiss
- * @version 1.0
+ * @version 2.0
  * @since 1.0
  */
 public class NXFile {
@@ -34,7 +34,9 @@ public class NXFile {
 	private final RandomAccessFile file;
 	private ByteBuffer byteBuffer;
 	private SeekableLittleEndianAccessor slea;
+	private NXNodeAccessor nxna;
 	private int nodeId = 0;
+	private long nodeOffset = 0;
 	protected INXNode baseNode = null;
 	protected INXNode[] nodeTable = null;
 	private String[] stringTable = null;
@@ -82,20 +84,32 @@ public class NXFile {
 	}
 	
 	/**
-	 * Parses all of the nodes from the NX file.
+	 * Parses all of the nodes from the NX file using an <code>NXNodeAccessor</code>.
 	 * @throws NXException if the file fails to parse
 	 */
 	public void parse() throws NXException {
+		parse(false);
+	}
+	
+	/**
+	 * Parses all of the nodes from the NX file.
+	 * @param useAccessor whether or not to use the NXNodeAccessor
+	 * @throws NXException if the file fails to parse
+	 */
+	public void parse(boolean useAccessor) throws NXException {
 		if (slea == null) {
 			throw new NXException("Failed to parse NX file as it has not yet been opened.");
-		}
-		if (slea.getUInt() != 0x32474B50) {
+		} else if (slea.getUInt() != 0x33474B50) {
 			throw new NXException("Unable to parse NX file as the header was not found.");
 		}
 		this.parseStringTable();
 		this.parseCanvasTable();
 		this.parseMP3Table();
-		this.parseNodes();
+		if (!useAccessor) {
+			this.parseAllNodes();
+		} else {
+			this.prepareNXNodeAccessor();
+		}
 	}
 	
 	/**
@@ -173,10 +187,10 @@ public class NXFile {
 	}
 	
 	/**
-	 * Parses all of the nodes from the NX file.
-	 * @throws NXException if any nodes fail to parse
+	 * Prepares the <code>NXNodeAccessor</code> instead of parsing all nodes immediately.
+	 * @throws NXException if the file fails to parse
 	 */
-	protected void parseNodes() throws NXException {
+	protected void prepareNXNodeAccessor() throws NXException {
 		slea.seek(4);
 		long nodeCount = slea.getUInt();
 		if (nodeCount > Integer.MAX_VALUE) {
@@ -188,6 +202,31 @@ public class NXFile {
 		if (baseNodeOffset < 0) {
 			throw new NXException("Unable to parse node block as it is out of range.");
 		}
+		this.nodeOffset = baseNodeOffset;
+		slea.seek(baseNodeOffset);
+		nodeTable = new INXNode[(int) nodeCount];
+		baseNode = parseNode(null, false);
+		slea.seek(baseNodeOffset);
+		nxna = new NXNodeAccessor(slea.getBytes((int) (20 * nodeCount)), this);
+	}
+	
+	/**
+	 * Parses all of the nodes from the NX file.
+	 * @throws NXException if any nodes fail to parse
+	 */
+	protected void parseAllNodes() throws NXException {
+		slea.seek(4);
+		long nodeCount = slea.getUInt();
+		if (nodeCount > Integer.MAX_VALUE) {
+			throw new NXException("Unable to parse nodes as the amount of nodes is too high.");
+		} else if (nodeCount < 1) {
+			throw new NXException("Unable to parse nodes due to the absence of nodes.");
+		}
+		long baseNodeOffset = slea.getLong();
+		if (baseNodeOffset < 0) {
+			throw new NXException("Unable to parse node block as it is out of range.");
+		}
+		this.nodeOffset = baseNodeOffset;
 		slea.seek(baseNodeOffset);
 		nodeTable = new INXNode[(int) nodeCount];
 		baseNode = parseNode(null);
@@ -203,48 +242,98 @@ public class NXFile {
 	 * @throws NXException if the node is unknown
 	 */
 	protected INXNode parseNode(INXNode parent) throws NXException {
-		String name = stringTable[(int) slea.getUInt()];
-		int coreType = slea.getUByte();
-		int typeId = coreType & 0x7F;
+		return this.parseNode(parent, true);
+	}
+	
+	/**
+	 * Parses an individual node from the NX file.
+	 * @param parent the parent of the node
+	 * @param parseChildren whether or not to parse the children completely
+	 * @return the node that was parsed
+	 * @throws NXException if the node is unknown
+	 */
+	protected INXNode parseNode(INXNode parent, boolean parseChildren) throws NXException {
+		String name = stringTable[(int) slea.getUInt()]; // 4 bytes
+		int childCount = slea.getUShort(); // 2 bytes
+		int typeId = slea.getUShort(); // 2 bytes
 		NXNodeType type = NXNodeType.fromTypeId(typeId);
 		INXNode ret = null;
 		switch (type) {
 			case Null:
 				ret = new NXNullNode(name, this, parent);
+				slea.skip(8); // 8 bytes
 				break;
 			case Integer:
-				ret = new NXIntegerNode(name, slea.getInt(), this, parent);
+				ret = new NXIntegerNode(name, slea.getInt(), this, parent); // 4 bytes
+				slea.skip(4); // 4 bytes
 				break;
 			case Double:
-				ret = new NXDoubleNode(name, slea.getDouble(), this, parent);
+				ret = new NXDoubleNode(name, slea.getDouble(), this, parent); // 8 bytes
 				break;
 			case String:
-				ret = new NXStringNode(name, stringTable[(int) slea.getUInt()], this, parent);
+				ret = new NXStringNode(name, stringTable[(int) slea.getUInt()], this, parent); // 4 bytes
+				slea.skip(4); // 4 bytes
 				break;
 			case Point:
-				ret = new NXPointNode(name, slea.getPoint(), this, parent);
+				ret = new NXPointNode(name, slea.getPoint(), this, parent); // 8 bytes
 				break;
 			case Canvas:
-				ret = new NXCanvasNode(name, slea, getCanvasOffset(slea.getUInt()), this, parent);
+				ret = new NXCanvasNode(name, slea, getCanvasOffset(slea.getUInt()), this, parent); // 4 bytes
+				slea.skip(4); // 4 bytes
 				break;
 			case MP3:
-				ret = new NXMP3Node(name, slea, getMP3Offset(slea.getUInt()), this, parent);
+				ret = new NXMP3Node(name, slea, getMP3Offset(slea.getUInt()), this, parent); // 4 bytes
+				slea.skip(4); // 4 bytes
 				break;
-			case Link:
-				ret = new NXLinkNode(name, (int) slea.getUInt(), this, parent);
-				break;
+			default:
 			case Unknown:
+				slea.skip(8); // 8 bytes
 				throw new NXException("Unable to parse node as a result of an unknown node type (" + typeId + ").");
+				
 		}
 		nodeTable[nodeId++] = ret;
-		if ((coreType & 0x80) != 0x80)
+		ret.setChildCount(childCount);
+		if (childCount == 0 || !parseChildren) {
+			slea.skip(4); // 4 bytes
 			return ret;
-		int childCount = slea.getUShort();
+		}
 		while (childCount > 0) {
 			childCount--;
-			ret.addChild(this.parseNode(ret));
+			long childOffset = slea.getUInt() * 20 + nodeOffset; // 4 bytes
+			slea.seek(childOffset); 
+			ret.setChildOffset(childOffset);
+			ret.addParsedChild(this.parseNode(ret, parseChildren));
 		}
 		return ret;
+	}
+	
+	/**
+	 * Parses all of the direct children of a node.
+	 * @param parent the parent node to parse
+	 * @return an array of the children of the node
+	 * @throws NXException if the node is unknown
+	 */
+	protected INXNode[] parseNodeChildren(INXNode parent) throws NXException {
+		int childCount = parent.getChildCount();
+		INXNode[] children = null;
+		if (childCount > 0) {
+			children = new INXNode[childCount];
+			slea.seek(parent.getChildOffset());
+			while (childCount > 0) {
+				children[parent.getChildCount() - childCount] = parseNode(parent, false);
+				childCount--;
+			}
+		}
+		return children;
+	}
+	
+	/**
+	 * Looks up the string at the specified offset.
+	 * @param stringTableOffset the offset to look up
+	 * @return the string at the offset
+	 */
+	protected String lookUp(long stringTableOffset) {
+		return stringTable[(int) stringTableOffset];
 	}
 	
 	/**
@@ -252,7 +341,7 @@ public class NXFile {
 	 * @param index the index in the table
 	 * @return the canvas offset
 	 */
-	private long getCanvasOffset(long index) {
+	protected long getCanvasOffset(long index) {
 		if (canvasOffsetTable.length > 0) {
 			return canvasOffsetTable[(int) index];
 		} else {
@@ -265,12 +354,52 @@ public class NXFile {
 	 * @param index the index in the table
 	 * @return the mp3 offset
 	 */
-	private long getMP3Offset(long index) {
+	protected long getMP3Offset(long index) {
 		if (mp3OffsetTable.length > 0) {
 			return mp3OffsetTable[(int) index];
 		} else {
 			return -1;
 		}
+	}
+	
+	/**
+	 * Gets the base node from this file.
+	 * @return the base node of this file
+	 */
+	public INXNode getBaseNode() {
+		return baseNode;
+	}
+	
+	/**
+	 * Resolves a node path to the node.
+	 * @param path the path to the node
+	 * @return the node of the path
+	 */
+	public INXNode resolvePath(String path) {
+		String[] splitPath = path.split("/");
+		INXNode workingNode = baseNode;
+		try {
+			for (String s : splitPath) {
+				if (s == ".") {
+					continue;
+				} else if (s == "..") {
+					workingNode = workingNode.getParent();
+				} else {
+					workingNode = workingNode.getChild(s);
+				}
+			}
+			return workingNode;
+		} catch (NullPointerException e) {
+			return null;
+		}
+	}
+	
+	/**
+	 * Gets an <code>NXNodeAccessor</code> for parsing node data.
+	 * @return an <code>NXNodeAccessor</code> for parsing node data
+	 */
+	public NXNodeAccessor getNXNodeAccessor() {
+		return nxna;
 	}
 	
 	/**
